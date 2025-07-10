@@ -1,11 +1,11 @@
-// If TypeScript gives you an error about base-64, add this to a file named 'declarations.d.ts' in your root:
-// declare module 'base-64';
-
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import axios from 'axios';
 import base64 from 'base-64';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+
+const BACKEND_URL = 'https://legendbackend.onrender.com';
 
 export default function AccountScreen() {
   const router = useRouter();
@@ -22,7 +22,6 @@ export default function AccountScreen() {
       if (token) {
         try {
           const payload = token.split('.')[1];
-          // Fix for base64 padding (in case backend returns URL-safe base64)
           const pad = payload.length % 4 === 0 ? '' : '='.repeat(4 - (payload.length % 4));
           const decodedPayload = base64.decode(payload + pad);
           const decoded = JSON.parse(decodedPayload);
@@ -54,6 +53,37 @@ export default function AccountScreen() {
     router.replace('/login');
   };
 
+  // --- Delete Account Handler ---
+  const handleDeleteAccount = async () => {
+    Alert.alert(
+      'Delete Account',
+      'Are you sure you want to permanently delete your account? This will remove all your data and cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setLoading(true);
+              const token = await AsyncStorage.getItem('token');
+              await axios.delete(`${BACKEND_URL}/api/user/account`, {
+                headers: { Authorization: `Bearer ${token}` },
+              });
+              await AsyncStorage.multiRemove(['token', 'birthday', 'phone']);
+              setLoading(false);
+              Alert.alert('Account Deleted', 'Your account has been deleted.');
+              router.replace('/login');
+            } catch (err: any) {
+              setLoading(false);
+              Alert.alert('Delete Failed', err?.response?.data?.message || 'Failed to delete account.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   return (
     <View style={styles.container}>
       <View style={styles.card}>
@@ -83,6 +113,17 @@ export default function AccountScreen() {
         </TouchableOpacity>
         <TouchableOpacity style={[styles.button, { backgroundColor: '#aaa', marginTop: 10 }]} onPress={handleLogout}>
           <Text style={styles.buttonText}>Log Out</Text>
+        </TouchableOpacity>
+
+        {/* Delete Account Button */}
+        <TouchableOpacity
+          style={[styles.button, { backgroundColor: '#ff4d4f', marginTop: 22 }]}
+          onPress={handleDeleteAccount}
+          disabled={loading}
+        >
+          <Text style={[styles.buttonText, { color: '#fff' }]}>
+            {loading ? "Processing..." : "Delete Account"}
+          </Text>
         </TouchableOpacity>
       </View>
     </View>
