@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Linking from 'expo-linking';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Sharing from 'expo-sharing';
@@ -21,10 +22,11 @@ export default function AnalyticsScreen() {
   const [projectId, setProjectId] = useState<string | null>(null);
   const [scanCount, setScanCount] = useState(0);
   const [scanEvents, setScanEvents] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const qrRef = useRef<React.ComponentRef<typeof ViewShot>>(null);
 
-  // QR Mode: "tracked" or "direct"
-  const [qrMode, setQrMode] = useState<'tracked' | 'direct'>('tracked');
+  // Default to 'direct' QR mode
+  const [qrMode, setQrMode] = useState<'tracked' | 'direct'>('direct');
 
   // Dynamic QR value
   const qrValue =
@@ -37,11 +39,19 @@ export default function AnalyticsScreen() {
     ? text
     : `https://www.google.com/search?q=${encodeURIComponent(text)}`;
 
-  // Load project info and scan analytics
+  const getToken = async () => {
+    return await AsyncStorage.getItem('token');
+  };
+
+  // Load project info and scan analytics (always use JWT)
   const loadAnalytics = async () => {
+    setLoading(true);
     try {
-      // Fetch all projects to get the correct project ID
-      const res = await fetch(`${BACKEND_URL}/api/get-projects`);
+      const token = await getToken();
+      // Fetch all projects for current user
+      const res = await fetch(`${BACKEND_URL}/api/get-projects`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
       const data = await res.json();
       const match = data.projects?.find((p: any) => p.name === name && p.text === text);
       if (match) {
@@ -49,14 +59,18 @@ export default function AnalyticsScreen() {
         setQrColor(match.qrColor || '#000000');
         setBgColor(match.bgColor || '#ffffff');
         // Fetch scan analytics for this project
-        const analyticsRes = await fetch(`${BACKEND_URL}/api/get-scan-analytics/${match.id}`);
+        const analyticsRes = await fetch(`${BACKEND_URL}/api/get-scan-analytics/${match.id}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
         const analyticsData = await analyticsRes.json();
         setScanCount(analyticsData.scanCount || 0);
         setScanEvents(analyticsData.scanEvents || []);
       }
     } catch (err) {
       console.error('❌ Failed to load analytics:', err);
+      Alert.alert('Error', 'Failed to load project analytics.');
     }
+    setLoading(false);
   };
 
   useEffect(() => {
@@ -78,15 +92,15 @@ export default function AnalyticsScreen() {
       Alert.alert('QR not ready to share');
       return;
     }
-
     const uri = await ref.capture();
     await Sharing.shareAsync(uri);
   };
 
+  // Pass projectId to Customize screen!
   const handleCustomizePress = () => {
     router.push({
       pathname: '/customize',
-      params: { name, text },
+      params: { name, text, projectId },
     });
   };
 
@@ -95,6 +109,26 @@ export default function AnalyticsScreen() {
       await Linking.openURL(linkToOpen);
     } catch (err) {
       Alert.alert('Failed to open', 'Could not launch the URL or search.');
+    }
+  };
+
+  // Handler for tracked QR mode toggle
+  const handleEnableTrackedQR = () => {
+    if (qrMode !== 'tracked') {
+      Alert.alert(
+        "Inform Your Users",
+        "When you enable tracking, make sure to inform the people using the QR code that you are tracking the location and number of scans.",
+        [
+          {
+            text: "OK",
+            onPress: () => setQrMode('tracked'),
+          },
+          {
+            text: "Cancel",
+            style: "cancel"
+          }
+        ]
+      );
     }
   };
 
@@ -108,6 +142,14 @@ export default function AnalyticsScreen() {
     );
   }
 
+  if (loading) {
+    return (
+      <View style={styles.container}>
+        <Text style={{ color: '#888', fontSize: 17 }}>Loading project...</Text>
+      </View>
+    );
+  }
+
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <Title style={styles.title}>{name}</Title>
@@ -116,7 +158,7 @@ export default function AnalyticsScreen() {
       <View style={styles.qrModeToggle}>
         <TouchableOpacity
           style={[styles.toggleBtn, qrMode === 'tracked' && styles.toggleActive]}
-          onPress={() => setQrMode('tracked')}
+          onPress={handleEnableTrackedQR}
         >
           <Text style={{ color: qrMode === 'tracked' ? '#fff' : '#2196F3', fontWeight: '700' }}>Tracked QR</Text>
         </TouchableOpacity>

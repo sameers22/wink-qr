@@ -33,6 +33,15 @@ export default function GenerateScreen() {
   const router = useRouter();
 
   useEffect(() => {
+    (async () => {
+      const accepted = await AsyncStorage.getItem('privacyAccepted');
+      if (accepted !== 'true') {
+        router.replace('/privacy');
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
     AsyncStorage.getItem('token').then(token => {
       if (!token) router.replace('/login');
     });
@@ -95,25 +104,28 @@ export default function GenerateScreen() {
     handleSearch(search);
   }, [projects, search]);
 
-  const loadProjects = async () => {
-    setLoading(true);
-    try {
-      const token = await AsyncStorage.getItem('token');
-      const res = await fetch(`${BACKEND_URL}/api/get-projects`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      const data = await res.json();
-      setProjects(data.projects || []);
-      setFilteredProjects(data.projects || []);
-      await AsyncStorage.setItem('qr_cache', JSON.stringify(data.projects));
-      setTimeout(() => setLoading(false), 500); // Small delay for UX
-    } catch (err) {
-      console.error('Load error:', err);
-      const fallback = await AsyncStorage.getItem('qr_cache');
-      if (fallback) setProjects(JSON.parse(fallback));
-      setLoading(false);
-    }
-  };
+const loadProjects = async () => {
+  setLoading(true);
+  try {
+    const token = await AsyncStorage.getItem('token');
+    const res = await fetch(`${BACKEND_URL}/api/get-projects`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    const data = await res.json();
+    // === Fix is here ===
+    const projectsList = Array.isArray(data.projects) ? data.projects : [];
+    setProjects(projectsList);
+    setFilteredProjects(projectsList);
+    await AsyncStorage.setItem('qr_cache', JSON.stringify(projectsList));
+    setTimeout(() => setLoading(false), 500);
+  } catch (err) {
+    console.error('Load error:', err);
+    const fallback = await AsyncStorage.getItem('qr_cache');
+    if (fallback) setProjects(JSON.parse(fallback));
+    setLoading(false);
+  }
+};
+
 
   const saveProjectToBackend = async (base64: string) => {
     const payload = {

@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
@@ -19,46 +20,63 @@ import eventBus from '../utils/event-bus';
 const BACKEND_URL = 'https://legendbackend.onrender.com';
 
 export default function CustomizeScreen() {
-  const { text: rawText, name: rawName } = useLocalSearchParams();
+  const { text: rawText, name: rawName, projectId: rawProjectId } = useLocalSearchParams();
   const text = typeof rawText === 'string' ? rawText : '';
   const name = typeof rawName === 'string' ? rawName : '';
+  const initialProjectId = typeof rawProjectId === 'string' ? rawProjectId : '';
   const router = useRouter();
 
   const [qrColor, setQrColor] = useState('#000000');
   const [bgColor, setBgColor] = useState('#ffffff');
-  const [projectId, setProjectId] = useState('');
+  const [projectId, setProjectId] = useState(initialProjectId);
   const [showQRPicker, setShowQRPicker] = useState(false);
   const [showBGPicker, setShowBGPicker] = useState(false);
+  const [loading, setLoading] = useState(!initialProjectId);
 
   const fadeAnim = useRef(new Animated.Value(1)).current;
   const viewShotRef = useRef<React.ComponentRef<typeof ViewShot>>(null);
 
+  // Get token (helper, called as needed)
+  const getToken = async () => {
+    return await AsyncStorage.getItem('token');
+  };
+
+  // Fetch project info if we don't have projectId yet
   useEffect(() => {
+    if (initialProjectId) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
     const fetchProject = async () => {
       try {
-        const res = await fetch(`${BACKEND_URL}/api/get-projects`);
+        const token = await getToken();
+        const res = await fetch(`${BACKEND_URL}/api/get-projects`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
         const data = await res.json();
+        // Find the project by name and text (could also pass projectId!)
         const match = data.projects?.find((p: any) => p.name === name && p.text === text);
         if (match) {
+          setProjectId(match.id);
           setQrColor(match.qrColor || '#000000');
           setBgColor(match.bgColor || '#ffffff');
-          setProjectId(match.id);
         }
       } catch (err) {
-        console.error('Failed to load project:', err);
-        Alert.alert('Error', 'Could not load project customization');
+        Alert.alert('Error', 'Could not load project for customization');
       }
+      setLoading(false);
     };
     fetchProject();
-  }, [name, text]);
+  }, [name, text, initialProjectId]);
 
   const updateColorsAndImage = async (qrColorValue: string, bgColorValue: string) => {
     if (!projectId || !viewShotRef.current) {
       Alert.alert('Missing project ID or QR view');
       return;
     }
-
     try {
+      const token = await getToken();
       const uri = await viewShotRef.current?.capture?.();
       if (!uri) {
         Alert.alert('Failed to capture QR image');
@@ -67,20 +85,20 @@ export default function CustomizeScreen() {
       const base64 = await FileSystem.readAsStringAsync(uri, {
         encoding: FileSystem.EncodingType.Base64,
       });
-
       await fetch(`${BACKEND_URL}/api/update-color/${projectId}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({
           qrColor: qrColorValue,
           bgColor: bgColorValue,
           qrImage: base64,
         }),
       });
-
       eventBus.emit('customizationUpdated', { name, text });
     } catch (err) {
-      console.error('Color/image update failed:', err);
       Alert.alert('Failed to update project');
     }
   };
@@ -111,16 +129,16 @@ export default function CustomizeScreen() {
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      <Title style={styles.title}> Customize Your QR Code</Title>
+      <Title style={styles.title}>Customize Your QR Code</Title>
 
-      {/* QR Code Live Preview */}
+      {/* QR Code Preview */}
       <Animated.View style={[styles.previewContainer, { opacity: fadeAnim }]}>
         <ViewShot ref={viewShotRef} options={{ format: 'png', quality: 1.0 }}>
           <QRCode value={text} size={220} color={qrColor} backgroundColor={bgColor} />
         </ViewShot>
       </Animated.View>
 
-      {/* QR Code Color */}
+      {/* QR Color Picker */}
       <Text style={styles.label}>QR Code Color</Text>
       <View style={styles.colorRow}>
         <TextInput
@@ -146,7 +164,7 @@ export default function CustomizeScreen() {
         </View>
       )}
 
-      {/* Background Color */}
+      {/* BG Color Picker */}
       <Text style={styles.label}>Background Color</Text>
       <View style={styles.colorRow}>
         <TextInput
@@ -172,7 +190,7 @@ export default function CustomizeScreen() {
         </View>
       )}
 
-      {/* Action Buttons */}
+      {/* Save / Reset */}
       <Button
         mode="contained"
         icon="check"
@@ -180,8 +198,9 @@ export default function CustomizeScreen() {
         style={styles.saveButton}
         buttonColor="#2196F3"
         labelStyle={{ fontWeight: '600' }}
+        disabled={!projectId || loading}
       >
-        Save & Return
+        {loading || !projectId ? 'Loading...' : 'Save & Return'}
       </Button>
 
       <Button
@@ -190,6 +209,7 @@ export default function CustomizeScreen() {
         onPress={handleResetToDefault}
         style={styles.resetButton}
         textColor="#2196F3"
+        disabled={!projectId || loading}
       >
         Reset to Default
       </Button>
