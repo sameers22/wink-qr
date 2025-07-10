@@ -182,25 +182,6 @@ export default function AnalyticsScreen() {
       <Text style={styles.scanCount}>
         Total scans: <Text style={{ fontWeight: 'bold' }}>{scanCount}</Text>
       </Text>
-
-      {/* Device/Location List */}
-      <Text style={[styles.label, { marginTop: 16 }]}>Scan History</Text>
-      {scanEvents.length === 0 && <Text style={{ color: '#aaa' }}>No scans yet.</Text>}
-      {scanEvents.slice().reverse().map((event, i) => (
-        <View key={i} style={styles.row}>
-          <Text style={styles.eventTime}>
-            {new Date(event.timestamp).toLocaleString()}
-          </Text>
-          <Text style={styles.eventDevice} numberOfLines={1}>
-            Device: {event.userAgent?.slice(0, 55) || 'Unknown'}
-          </Text>
-          {event.location && (
-            <Text style={styles.eventLocation}>
-              Location: {event.location.city || 'Unknown'}, {event.location.country || ''}
-            </Text>
-          )}
-        </View>
-      ))}
     </ScrollView>
   );
 }

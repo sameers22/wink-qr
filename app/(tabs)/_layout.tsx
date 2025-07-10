@@ -4,7 +4,6 @@ import { Platform } from 'react-native';
 
 import { HapticTab } from '@/components/HapticTab';
 import { IconSymbol } from '@/components/ui/IconSymbol';
-import TabBarBackground from '@/components/ui/TabBarBackground';
 import { useColorScheme } from '@/hooks/useColorScheme';
 
 export default function TabLayout() {
@@ -15,13 +14,12 @@ export default function TabLayout() {
       screenOptions={{
         headerShown: false,
         tabBarButton: HapticTab,
-        tabBarBackground: () => <TabBarBackground />, // ensure it returns a styled view
         tabBarActiveTintColor: '#2196F3',
         tabBarInactiveTintColor: '#999',
         tabBarStyle: Platform.select({
           ios: {
             position: 'absolute',
-            backgroundColor: 'transparent', // allow TabBarBackground to show
+            backgroundColor: '#fff',
             borderTopColor: 'transparent',
             height: 90,
           },
@@ -46,6 +44,15 @@ export default function TabLayout() {
           title: 'Analytics',
           tabBarIcon: ({ color }) => (
             <IconSymbol name="chart.bar.fill" size={26} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="account"
+        options={{
+          title: 'Account',
+          tabBarIcon: ({ color }) => (
+            <IconSymbol name="person.crop.circle" size={27} color={color} />
           ),
         }}
       />

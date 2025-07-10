@@ -1,4 +1,4 @@
-// app/(tabs)/index.tsx (GenerateScreen with Animations + Favorites)
+// app/(tabs)/index.tsx
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as FileSystem from 'expo-file-system';
@@ -6,6 +6,7 @@ import { useRouter } from 'expo-router';
 import * as Sharing from 'expo-sharing';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   FlatList,
   Image,
@@ -27,16 +28,17 @@ import eventBus from '../../utils/event-bus';
 const BACKEND_URL = 'https://legendbackend.onrender.com';
 const FAVORITES_KEY = 'favorite_project_ids';
 
-// Helper functions for favorites
-const getFavoriteProjectIds = async () => {
-  const ids = await AsyncStorage.getItem(FAVORITES_KEY);
-  return ids ? JSON.parse(ids) : [];
-};
-const setFavoriteProjectIds = async (ids: string[]) => {
-  await AsyncStorage.setItem(FAVORITES_KEY, JSON.stringify(ids));
-};
-
+// ======== AUTH CHECK AT TOP =========
 export default function GenerateScreen() {
+  const router = useRouter();
+
+  useEffect(() => {
+    AsyncStorage.getItem('token').then(token => {
+      if (!token) router.replace('/login');
+    });
+  }, []);
+
+  // Rest of your logic
   const [text, setText] = useState('');
   const [showQR, setShowQR] = useState(false);
   const [projects, setProjects] = useState<any[]>([]);
@@ -52,7 +54,15 @@ export default function GenerateScreen() {
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
   const qrRef = useRef<ViewShot>(null);
   const flatListRef = useRef<FlatList>(null);
-  const router = useRouter();
+
+  // Helper functions for favorites
+  const getFavoriteProjectIds = async () => {
+    const ids = await AsyncStorage.getItem(FAVORITES_KEY);
+    return ids ? JSON.parse(ids) : [];
+  };
+  const setFavoriteProjectIds = async (ids: string[]) => {
+    await AsyncStorage.setItem(FAVORITES_KEY, JSON.stringify(ids));
+  };
 
   // Load favorites from storage
   useEffect(() => {
@@ -86,17 +96,21 @@ export default function GenerateScreen() {
   }, [projects, search]);
 
   const loadProjects = async () => {
+    setLoading(true);
     try {
-      const res = await fetch(`${BACKEND_URL}/api/get-projects`);
+      const token = await AsyncStorage.getItem('token');
+      const res = await fetch(`${BACKEND_URL}/api/get-projects`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
       const data = await res.json();
       setProjects(data.projects || []);
       setFilteredProjects(data.projects || []);
       await AsyncStorage.setItem('qr_cache', JSON.stringify(data.projects));
+      setTimeout(() => setLoading(false), 500); // Small delay for UX
     } catch (err) {
       console.error('Load error:', err);
       const fallback = await AsyncStorage.getItem('qr_cache');
       if (fallback) setProjects(JSON.parse(fallback));
-    } finally {
       setLoading(false);
     }
   };
@@ -112,9 +126,13 @@ export default function GenerateScreen() {
     };
 
     try {
+      const token = await AsyncStorage.getItem('token');
       const res = await fetch(`${BACKEND_URL}/api/save-project`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify(payload),
       });
       const json = await res.json();
@@ -126,7 +144,8 @@ export default function GenerateScreen() {
         setQrColor('#000000');
         setBgColor('#ffffff');
         setShowProjectModal(false);
-        loadProjects();
+        await loadProjects();
+        flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
       } else {
         Alert.alert('Save failed', json.message || 'Try again later');
       }
@@ -196,9 +215,13 @@ export default function GenerateScreen() {
 
   const saveEditedProject = async (index: number) => {
     const item = projects[index];
+    const token = await AsyncStorage.getItem('token');
     await fetch(`${BACKEND_URL}/api/update-project/${item.id}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
       body: JSON.stringify({ name: item.name, text: item.text }),
     });
     setEditIndex(null);
@@ -207,7 +230,11 @@ export default function GenerateScreen() {
 
   const handleDeleteProject = async (index: number) => {
     const id = projects[index].id;
-    await fetch(`${BACKEND_URL}/api/delete-project/${id}`, { method: 'DELETE' });
+    const token = await AsyncStorage.getItem('token');
+    await fetch(`${BACKEND_URL}/api/delete-project/${id}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${token}` },
+    });
     await AsyncStorage.removeItem(`customization_${id}`);
     // Remove from favorites if present
     if (favoriteProjectIds.includes(id)) {
@@ -264,6 +291,8 @@ export default function GenerateScreen() {
             onPress={() => {
               setText('');
               setShowQR(false);
+              setQrColor('#000000');
+              setBgColor('#ffffff');
             }}
             textColor="#2196F3"
             style={{ borderColor: '#2196F3' }}
@@ -308,66 +337,90 @@ export default function GenerateScreen() {
 
       <Title style={styles.heading}>Saved Projects</Title>
 
-      <FlatList
-        data={projectsToShow}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item, index }) => (
-          <Animatable.View animation="fadeInUp" duration={500} delay={index * 100}>
-            <View style={styles.card}>
-              {/* Favorite Star Button (top-right) */}
+      {loading ? (
+        <ActivityIndicator size="large" color="#2196F3" style={{ marginTop: 30 }} />
+      ) : (
+        <FlatList
+          data={projectsToShow}
+          keyExtractor={(item) => item.id}
+          renderItem={({ item, index }) => (
+            <Animatable.View animation="fadeInUp" duration={500} delay={index * 100}>
               <TouchableOpacity
-                onPress={() => toggleFavorite(item.id)}
-                style={{ position: 'absolute', top: 8, right: 8, zIndex: 2 }}
-                hitSlop={{ top: 10, left: 10, bottom: 10, right: 10 }}
+                onPress={() => handleProjectPress(item)}
+                activeOpacity={0.93}
+                style={styles.card}
               >
-                <MaterialCommunityIcons
-                  name={favoriteProjectIds.includes(item.id) ? 'star' : 'star-outline'}
-                  size={28}
-                  color="#FFD700"
-                />
-              </TouchableOpacity>
-
-              {editIndex === index ? (
-                <>
-                  <RNTextInput
-                    value={item.name}
-                    onChangeText={(val) => handleEditChange('name', val, index)}
-                    style={{ marginBottom: 8 }}
+                {/* Favorite Star Button (top-right) */}
+                <TouchableOpacity
+                  onPress={(e) => {
+                    e.stopPropagation(); // Don't bubble to card
+                    toggleFavorite(item.id);
+                  }}
+                  style={{ position: 'absolute', top: 8, right: 8, zIndex: 2 }}
+                  hitSlop={{ top: 10, left: 10, bottom: 10, right: 10 }}
+                >
+                  <MaterialCommunityIcons
+                    name={favoriteProjectIds.includes(item.id) ? 'star' : 'star-outline'}
+                    size={28}
+                    color="#FFD700"
                   />
-                  <RNTextInput
-                    value={item.text}
-                    onChangeText={(val) => handleEditChange('text', val, index)}
-                  />
-                  <View style={{ flexDirection: 'row', marginTop: 8 }}>
-                    <Button onPress={() => saveEditedProject(index)}>Save</Button>
-                    <Button onPress={() => setEditIndex(null)}>Cancel</Button>
-                  </View>
-                </>
-              ) : (
-                <TouchableOpacity onPress={() => handleProjectPress(item)}>
-                  <Text style={styles.name}>{item.name}</Text>
-                  <Text>{item.text}</Text>
-                  <Text style={styles.time}>{new Date(item.time).toLocaleString()}</Text>
-                  {item.qrImage && (
-                    <Image
-                      source={{ uri: `data:image/png;base64,${item.qrImage}` }}
-                      style={{ width: 100, height: 100, marginTop: 10 }}
-                    />
-                  )}
-                  <View style={[styles.row, { marginTop: 8 }]}>
-                    <Button onPress={() => setEditIndex(index)}>Edit</Button>
-                    <Button onPress={() => handleDeleteProject(index)} labelStyle={{ color: 'red' }}>
-                      Delete
-                    </Button>
-                  </View>
                 </TouchableOpacity>
-              )}
-            </View>
-          </Animatable.View>
-        )}
-        ListEmptyComponent={!loading ? () => <Text>No projects yet.</Text> : null}
-        ref={flatListRef}
-      />
+
+                {editIndex === index ? (
+                  <>
+                    <RNTextInput
+                      value={item.name}
+                      onChangeText={(val) => handleEditChange('name', val, index)}
+                      style={{ marginBottom: 8 }}
+                    />
+                    <RNTextInput
+                      value={item.text}
+                      onChangeText={(val) => handleEditChange('text', val, index)}
+                    />
+                    <View style={{ flexDirection: 'row', marginTop: 8 }}>
+                      <Button onPress={() => saveEditedProject(index)}>Save</Button>
+                      <Button onPress={() => setEditIndex(null)}>Cancel</Button>
+                    </View>
+                  </>
+                ) : (
+                  <>
+                    <Text style={styles.name}>{item.name}</Text>
+                    <Text>{item.text}</Text>
+                    <Text style={styles.time}>{new Date(item.time).toLocaleString()}</Text>
+                    {item.qrImage && (
+                      <Image
+                        source={{ uri: `data:image/png;base64,${item.qrImage}` }}
+                        style={{ width: 100, height: 100, marginTop: 10 }}
+                      />
+                    )}
+                    <View style={[styles.row, { marginTop: 8 }]}>
+                      <Button
+                        onPress={(e) => {
+                          e.stopPropagation();
+                          setEditIndex(index);
+                        }}
+                      >
+                        Edit
+                      </Button>
+                      <Button
+                        onPress={(e) => {
+                          e.stopPropagation();
+                          handleDeleteProject(index);
+                        }}
+                        labelStyle={{ color: 'red' }}
+                      >
+                        Delete
+                      </Button>
+                    </View>
+                  </>
+                )}
+              </TouchableOpacity>
+            </Animatable.View>
+          )}
+          ListEmptyComponent={!loading ? () => <Text>No projects yet.</Text> : null}
+          ref={flatListRef}
+        />
+      )}
 
       <Modal visible={showProjectModal} transparent animationType="slide">
         <Animatable.View animation="fadeInUp" duration={500} style={styles.modalBackdrop}>
@@ -392,8 +445,6 @@ export default function GenerateScreen() {
     </KeyboardAvoidingView>
   );
 }
-
-// styles remain unchanged
 
 const styles = StyleSheet.create({
   container: {
