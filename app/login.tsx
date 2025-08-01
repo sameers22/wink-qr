@@ -14,8 +14,13 @@ export default function LoginScreen() {
   const handleLogin = async () => {
     try {
       const res = await axios.post(`${BACKEND_URL}/api/login2`, { email, password });
-      await AsyncStorage.setItem('token', res.data.token);
-      router.replace('/');
+      const token = res.data?.token;
+      if (typeof token === 'string' && token) {
+        await AsyncStorage.setItem('token', token);
+        router.replace('/');
+      } else {
+        Alert.alert('Login Failed', 'Could not get a valid token from the server.');
+      }
     } catch (err: any) {
       Alert.alert('Login failed', err?.response?.data?.message || 'Error');
     }

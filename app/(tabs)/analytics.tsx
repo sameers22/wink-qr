@@ -4,10 +4,13 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as Sharing from 'expo-sharing';
 import React, { useEffect, useRef, useState } from 'react';
 import { Alert, Dimensions, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import MapView, { Marker } from 'react-native-maps';
 import { Button, Title } from 'react-native-paper';
 import QRCode from 'react-native-qrcode-svg';
 import ViewShot from 'react-native-view-shot';
 import eventBus from '../../utils/event-bus';
+
+import mapStyle from '../../assets/mapStyle.json'; // adjust path as needed
 
 const BACKEND_URL = 'https://legendbackend.onrender.com';
 
@@ -27,6 +30,32 @@ export default function AnalyticsScreen() {
 
   // Default to 'direct' QR mode
   const [qrMode, setQrMode] = useState<'tracked' | 'direct'>('direct');
+
+  // --- Map state ---
+  const [mapRegion, setMapRegion] = useState({
+    latitude: 37.0902, // USA center default
+    longitude: -95.7129,
+    latitudeDelta: 40,
+    longitudeDelta: 40,
+  });
+
+  // Only scanEvents with lat/lon
+  const scanMarkers = (scanEvents || []).filter(
+    e => e.location && typeof e.location.lat === 'number' && typeof e.location.lon === 'number'
+  );
+  const firstMarker = scanMarkers.length > 0 ? scanMarkers[0] : null;
+
+  // Auto-center on first scan marker
+  useEffect(() => {
+    if (firstMarker) {
+      setMapRegion({
+        latitude: firstMarker.location.lat,
+        longitude: firstMarker.location.lon,
+        latitudeDelta: 12,
+        longitudeDelta: 12,
+      });
+    }
+  }, [scanEvents.length]);
 
   // Dynamic QR value
   const qrValue =
@@ -224,6 +253,42 @@ export default function AnalyticsScreen() {
       <Text style={styles.scanCount}>
         Total scans: <Text style={{ fontWeight: 'bold' }}>{scanCount}</Text>
       </Text>
+
+      {/* ----------- MAP VIEW FOR SCAN EVENTS ----------- */}
+      {scanMarkers.length > 0 && (
+        <View style={styles.mapContainer}>
+          <Text style={styles.label}>Scan Locations Map</Text>
+          <MapView
+            style={styles.map}
+            region={mapRegion}
+            onRegionChangeComplete={setMapRegion}
+            showsUserLocation={false}
+            customMapStyle={mapStyle}
+          >
+            {scanMarkers.map((event, idx) => {
+              // Round coordinates to 1 decimal for privacy
+              const markerLat = typeof event.location.lat === "number" ? Math.round(event.location.lat * 10) / 10 : event.location.lat;
+              const markerLon = typeof event.location.lon === "number" ? Math.round(event.location.lon * 10) / 10 : event.location.lon;
+
+              return (
+                <Marker
+                  key={idx}
+                  coordinate={{
+                    latitude: markerLat,
+                    longitude: markerLon,
+                  }}
+                  title={
+                    event.location.city || event.location.country
+                      ? `${event.location.city || ''}${event.location.city && event.location.country ? ', ' : ''}${event.location.country || ''}`
+                      : 'Scan Location'
+                  }
+                  description={`Scanned: ${new Date(event.timestamp).toLocaleString()}`}
+                />
+              );
+            })}
+          </MapView>
+        </View>
+      )}
     </ScrollView>
   );
 }
@@ -234,7 +299,8 @@ const styles = StyleSheet.create({
     padding: 24,
     backgroundColor: '#f9f9f9',
     alignItems: 'center',
-    justifyContent: 'center',
+    // REMOVE justifyContent: 'center'
+    minHeight: '100%', // Optional but recommended
   },
   title: {
     fontSize: 24,
@@ -328,6 +394,21 @@ const styles = StyleSheet.create({
     marginTop: 8,
     fontWeight: '600',
     marginBottom: 10,
+  },
+  mapContainer: {
+    width: '100%',
+    height: 320,
+    marginTop: 18,
+    borderRadius: 14,
+    overflow: 'hidden',
+    backgroundColor: '#eee',
+    alignSelf: 'center',
+    borderWidth: 2,            // <-- Blue border thickness
+    borderColor: '#2196F3',    // <-- Blue color (Material Blue)
+  },
+  map: {
+    width: '100%',
+    height: '100%',
   },
   row: {
     marginBottom: 16,
